@@ -3,6 +3,7 @@
 	start_link/0,
 	start_cursor/1,
 	start_pool/3,
+	start_pool/4,
 	stop_pool/1
 ]).
 
@@ -26,9 +27,13 @@ start_cursor(Args) ->
 
 -spec start_pool(atom(), pos_integer(), mongo_connection:service()) -> {ok, pid()}.
 start_pool(Name, Size, Service) ->
+	start_pool(Name, Size, Service, []).
+
+-spec start_pool(atom(), pos_integer(), mongo_connection:service(), list()) -> {ok, pid()}.
+start_pool(Name, Size, Service, Options) ->
 	{ok, Supervisor} = supervisor:start_child(mongo_pools_sup, ?SUPERVISOR(Name, pool)),
 	{ok, Connections} = supervisor:start_child(Supervisor, ?SUPERVISOR(mongo_connections_sup, {connections, Service, [{timeout, 5000}]})),
-	supervisor:start_child(Supervisor, ?WORKER(mongo_pool, start_link, [Name, Size, Connections], permanent)).
+	supervisor:start_child(Supervisor, ?WORKER(mongo_pool, start_link, [Name, Size, Connections, Options], permanent)).
 
 -spec stop_pool(term()) -> ok.
 stop_pool(Name) ->

@@ -25,9 +25,12 @@
 ]).
 -export ([
 	command/1,
-	ensure_index/2
+	ensure_index/2,
+	
+	auth/2	
 ]).
-% TODO: add auth/2
+
+-compile(export_all).
 
 -include("mongo_protocol.hrl").
 
@@ -198,6 +201,21 @@ command(Command) ->
 		_ -> erlang:error({bad_command, Doc}, [Command])
 	end.
 
+% Authentication %
+
+-type username() :: bson:utf8().
+-type password() :: bson:utf8().
+-type nonce() :: bson:utf8().
+
+-spec auth (username(), password()) -> boolean(). % Action
+%@doc Authenticate with the database (if server is running in secure mode). Return whether authentication was successful or not. Reauthentication is required for every new pipe.
+auth (Username, Password) ->
+    Nonce = bson:at(nonce, command({getnonce, 1})),
+
+    io:format("===>>> ~p ~n", [{Nonce, Username, pw_key(Nonce, Username, Password)}]),
+    Ret = command({authenticate, 1, user, Username, nonce, Nonce, key, pw_key(Nonce, Username, Password)}),
+    io:format("===>>> ~p ~n", [Ret]),
+    Ret.
 
 %% @private
 -spec assign_id(bson:document()) -> bson:document().
@@ -272,3 +290,17 @@ read_one(Request) ->
 		[Doc | _] -> {Doc}
 	end.
 
+%% @private
+-spec pw_key (nonce(), username(), password()) -> bson:utf8().
+pw_key(Nonce, Username, Password) -> 
+	bson:utf8(binary_to_hexstr(crypto:md5([Nonce, Username, pw_hash(Username, Password)]))).
+
+%% @private
+-spec pw_hash (username(), password()) -> bson:utf8().
+pw_hash(Username, Password) -> 
+	bson:utf8(binary_to_hexstr(crypto:md5([Username, <<":mongo:">>, Password]))).
+
+%% @private
+-spec binary_to_hexstr (binary()) -> string().
+binary_to_hexstr (Bin) ->
+        lists:flatten ([io_lib:format ("~2.16.0b", [X]) || X <- binary_to_list (Bin)]).

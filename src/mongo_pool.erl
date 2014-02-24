@@ -1,7 +1,7 @@
 -module(mongo_pool).
 -export([
-	start/3,
-	start_link/3,
+	start/4,
+	start_link/4,
 	get/1
 ]).
 
@@ -18,17 +18,18 @@
 -record(state, {
 	supervisor  :: pid(),
 	connections :: array(),
-	monitors    :: orddict:orddict()
+	monitors    :: orddict:orddict(),
+	options		:: list()
 }).
 
 
--spec start(atom(), pos_integer(), pid()) -> {ok, pid()}.
-start(Name, Size, Sup) ->
-	gen_server:start({local, Name}, ?MODULE, [Size, Sup], []).
+-spec start(atom(), pos_integer(), pid(), list()) -> {ok, pid()}.
+start(Name, Size, Sup, Options) ->
+	gen_server:start({local, Name}, ?MODULE, [Size, Sup, Options], []).
 
--spec start_link(atom(), pos_integer(), pid()) -> {ok, pid()}.
-start_link(Name, Size, Sup) ->
-	gen_server:start_link({local, Name}, ?MODULE, [Size, Sup], []).
+-spec start_link(atom(), pos_integer(), pid(), list()) -> {ok, pid()}.
+start_link(Name, Size, Sup, Options) ->
+	gen_server:start_link({local, Name}, ?MODULE, [Size, Sup, Options], []).
 
 -spec get(atom() | pid()) -> mongo_connection:connection().
 get(Pool) ->
@@ -38,26 +39,33 @@ get(Pool) ->
 	end.
 
 %% @hidden
-init([Size, Sup]) ->
+init([Size, Sup, Options]) ->
 	random:seed(erlang:now()),
 	{ok, #state{
 		supervisor = Sup,
 		connections = array:new(Size, [{fixed, false}, {default, undefined}]),
+		options = Options,
 		monitors = orddict:new()
 	}}.
 
 %% @hidden
-handle_call(get, _From, #state{connections = Connections} = State) ->
+handle_call(get, _From, #state{connections = Connections, options = Options, supervisor = Sup} = State) ->
 	Index = random:uniform(array:size(Connections)) - 1,
 	case array:get(Index, Connections) of
 		undefined ->
-			case supervisor:start_child(State#state.supervisor, []) of
+			case supervisor:start_child(Sup, []) of
 				{ok, Connection} ->
-					Monitor = erlang:monitor(process, Connection),
-					{reply, {ok, Connection}, State#state{
-						connections = array:set(Index, Connection, Connections),
-						monitors = orddict:store(Monitor, Index, State#state.monitors)
-					}};
+					case auth(Connection, Options) of
+						true ->
+							Monitor = erlang:monitor(process, Connection),
+							{reply, {ok, Connection}, State#state{
+								connections = array:set(Index, Connection, Connections),
+								monitors = orddict:store(Monitor, Index, State#state.monitors)
+							}};
+						E ->
+							supervisor:terminate_child(Sup, Connection),
+							E
+					end;
 				{error, Error} ->
 					{reply, {error, Error}, State}
 			end;
@@ -87,3 +95,18 @@ terminate(_, _State) ->
 %% @hidden
 code_change(_Old, State, _Extra) ->
 	{ok, State}.
+
+
+auth(Connection, Options) ->
+	Auth = fun({DB, U, P}) ->
+				mongo:do(unsafe, master, Connection, DB, fun() -> mongo:auth(U, P) end)
+			end,
+
+	case proplists:get_value(auth, Options) of
+		undefined ->
+			true;
+		{_, _, _} = D ->
+			Auth(D);
+		L ->
+			lists:foreach(fun(D) -> Auth(D) end, L)
+	end.
