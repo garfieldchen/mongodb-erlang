@@ -210,12 +210,10 @@ command(Command) ->
 -spec auth (username(), password()) -> boolean(). % Action
 %@doc Authenticate with the database (if server is running in secure mode). Return whether authentication was successful or not. Reauthentication is required for every new pipe.
 auth (Username, Password) ->
+	Username1 = value_to_binary(Username),
+	Password1 = value_to_binary(Password),
     Nonce = bson:at(nonce, command({getnonce, 1})),
-
-    io:format("===>>> ~p ~n", [{Nonce, Username, pw_key(Nonce, Username, Password)}]),
-    Ret = command({authenticate, 1, user, Username, nonce, Nonce, key, pw_key(Nonce, Username, Password)}),
-    io:format("===>>> ~p ~n", [Ret]),
-    Ret.
+    command({authenticate, 1, user, Username1, nonce, Nonce, key, pw_key(Nonce, Username1, Password1)}).
 
 %% @private
 -spec assign_id(bson:document()) -> bson:document().
