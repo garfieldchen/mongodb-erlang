@@ -64,7 +64,7 @@ handle_call(get, _From, #state{connections = Connections, options = Options, sup
 							}};
 						E ->
 							supervisor:terminate_child(Sup, Connection),
-							E
+							{reply, E, State}
 					end;
 				{error, Error} ->
 					{reply, {error, Error}, State}
@@ -102,11 +102,24 @@ auth(Connection, Options) ->
 				mongo:do(unsafe, master, Connection, DB, fun() -> mongo:auth(U, P) end)
 			end,
 
+	CheckOk = fun(Doc) ->
+				case bson:at(ok, Doc) of
+					N when N == 1 ->
+						true;
+					true ->
+						true;
+					_ ->
+						false
+				end
+			end,
+
 	case proplists:get_value(auth, Options) of
 		undefined ->
 			true;
 		{_, _, _} = D ->
-			Auth(D);
+			CheckOk(Auth(D));
 		L ->
-			lists:foreach(fun(D) -> Auth(D) end, L)
+			lists:foldl(fun (D, true) -> Auth(D);
+							(_, false) -> false
+						end, true, L)
 	end.
