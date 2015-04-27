@@ -27,7 +27,10 @@
 	command/1,
 	ensure_index/2,
 	
-	auth/2	
+	auth/2,
+	
+	atomic_inc/3,
+	atomic_inc/4
 ]).
 
 -compile(export_all).
@@ -200,6 +203,18 @@ command(Command) ->
 		N when N == 1 -> Doc;
 		_ -> erlang:error({bad_command, Doc}, [Command])
 	end.
+
+% atomc inc
+atomic_inc(Coll, Selector, Key) -> 
+	atomic_inc(Coll, Selector, Key, 1).
+
+atomic_inc(Coll, Selector, Key, Value) ->
+	command({
+				findAndModify, Coll,
+				'query', Selector,
+				update, {'$inc', {Key, Value}},
+				upsert, true
+			}).
 
 % Authentication %
 
